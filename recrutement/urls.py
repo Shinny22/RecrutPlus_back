@@ -3,7 +3,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import *
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-
+from .views import set_cookie_consent
 
 router = DefaultRouter()
 router.register(r'domaines', DomaineViewSet)
@@ -13,7 +13,7 @@ router.register(r'candidats', CandidatViewSet)
 # router.register(r'comptes', CompteViewSet)
 router.register(r'demandes', DemandeViewSet)
 router.register(r'newsletters', NewsletterViewSet)
-router.register(r'contacts', ContactMessageViewSet)
+router.register(r'contact-message', ContactMessageViewSet, basename='contactmessage')
 
 urlpatterns = [
     path('api/', include(router.urls)),
@@ -27,8 +27,12 @@ urlpatterns = [
     path("admin/demandes/", DemandeListAdminView.as_view(), name="admin-demandes"),
     path('candidat/demandes/', MesDemandesView.as_view(), name='mes_demandes'),
     path('candidat/newsletter/', NewsletterView.as_view(), name='newsletter'),
-    path('contact-message/<int:pk>/reply/', ContactMessageViewSet.as_view({'post': 'reply'}), name='contact-message-reply'),
-     path("admin/login/", AdminLoginView.as_view(), name="admin-login"),
+    path('api/stats/', statistiques_globales, name='statistiques-globales'),
+    path('candidats/', liste_candidats, name='liste_candidats'),
+    path('campagnes/search/', search_campagne_api, name='campagne-search'),
+    path("set-cookie-consent/", set_cookie_consent, name="set_cookie_consent"),
+    # path('export/<str:model_name>/', export_any_model, name='export-any-model'),
+    path("login/admin/", AdminLoginView.as_view(), name="admin-login"),
     
 ]
 

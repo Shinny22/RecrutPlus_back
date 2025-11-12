@@ -106,10 +106,16 @@ class Demande(models.Model):
         ("ACCEPTEE", "Acceptée"),
         ("REFUSEE", "Refusée"),
     ]
+
     id_dde = models.AutoField(primary_key=True)
     dat_dde = models.DateField(auto_now_add=True)
     cv = models.FileField(upload_to="cvs/")
-    diplome = models.CharField(max_length=255)
+    diplome_fichier = models.FileField(
+    upload_to="diplomes/",
+    blank=True,
+    null=True,
+    default="diplomes/default_diplome.pdf"
+)  # ✅ fichier uploadé
     anne_obt_dip = models.PositiveSmallIntegerField()
     etat_dde = models.CharField(max_length=20, choices=ETAT_CHOICES, default="ENVOYEE")
     reponse = models.TextField(blank=True, null=True)
@@ -131,10 +137,19 @@ class Newsletter(models.Model):
 
 class ContactMessage(models.Model):
     nom = models.CharField(max_length=100)
-    prenom = models.CharField(max_length=100)
+    prenom = models.CharField(max_length=100,blank=True,null=True)
     email = models.EmailField()
     message = models.TextField()
     date_envoi = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.nom} - {self.sujet}"
+        return f"{self.nom} - {self.email}"
+
+
+from django.db import models
+
+class CookieConsent(models.Model):
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE, null=True)
+    consent_analytics = models.BooleanField(default=False)
+    consent_marketing = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)

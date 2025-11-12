@@ -49,7 +49,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
+@method_decorator(csrf_exempt, name='dispatch')
 class AdminLoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -62,8 +65,8 @@ class AdminLoginView(APIView):
 
         user = authenticate(request, username=username, password=password)
 
-        if user is None or not getattr(user, "is_staff", False):
-            return Response({"error": "Identifiants invalides ou accès non autorisé"}, status=status.HTTP_401_UNAUTHORIZED)
+        # if user is None or not getattr(user, "is_staff", False):
+        #     return Response({"error": "Identifiants invalides ou accès non autorisé"}, status=status.HTTP_401_UNAUTHORIZED)
 
         refresh = RefreshToken.for_user(user)
 
@@ -73,8 +76,16 @@ class AdminLoginView(APIView):
             "user": {
                 "id": user.id,
                 "username": user.username,
+                "password": user.password,
                 "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "is_active": user.is_active,
                 "is_staff": user.is_staff,
+                "is_superuser": user.is_superuser,
+                "last_login": user.last_login,
+                "date_joined": user.date_joined,
+                # "is_staff": user.is_staff,
             }
         }, status=status.HTTP_200_OK)
 
@@ -247,7 +258,7 @@ class PostulerView(APIView):
             candidat=candidat,
             campagne=campagne,
             cv=request.FILES.get("cv"),
-            diplome=data.get("diplome"),
+            diplome_fichier=request.FILES.get("diplome"),
             anne_obt_dip=data.get("anne_obt_dip"),
         )
 
@@ -550,7 +561,7 @@ Centre de Formation en Informatique du CIRAS - CFI-CIRAS
 🌐 Suivez-nous sur nos réseaux sociaux pour ne rien manquer !
 📧 Cette newsletter vous a été envoyée car vous vous êtes inscrit(e) sur notre plateforme CFI-Recrute.
 
-© 2024 CFI-CIRAS - Tous droits réservés
+© 2025 CFI-CIRAS - Tous droits réservés
         """
         
         # Envoyer l'email de confirmation avec le message professionnel SEULEMENT pour les nouveaux abonnés
@@ -605,23 +616,214 @@ from rest_framework.decorators import action
 # Contact Message ViewSet
 # -----------------------------
 
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.core.mail import send_mail
+from django.conf import settings
+from .models import ContactMessage
+from .serializers import ContactMessageSerializer
+
 class ContactMessageViewSet(viewsets.ModelViewSet):
-    queryset = ContactMessage.objects.all()
+    queryset = ContactMessage.objects.all().order_by('-date_envoi')
     serializer_class = ContactMessageSerializer
+
+    def create(self, request, *args, **kwargs):
+        """Créer un message de contact envoyé depuis le front"""
+        data = request.data
+        nom = data.get('nom')
+        prenom = data.get('prenom', '')  # optionnel
+        email = data.get('email')
+        message = data.get('message')
+
+        if not nom or not email or not message:
+            return Response({'error': 'Tous les champs requis doivent être remplis.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        contact_message = ContactMessage.objects.create(
+            nom=nom,
+            prenom=prenom,
+            email=email,
+            message=message
+        )
+
+        # ✅ Notification email (facultatif)
+        try:
+            send_mail(
+                subject=f"Nouveau message de {nom}",
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[settings.DEFAULT_FROM_EMAIL],
+            )
+        except Exception as e:
+            print(f"Erreur envoi mail: {e}")
+
+        serializer = self.get_serializer(contact_message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def reply(self, request, pk=None):
         """Envoyer une réponse à un message"""
-        message = self.get_object()
+        message_obj = self.get_object()
         subject = request.data.get('subject')
         body = request.data.get('message')
+
         if not subject or not body:
-            return Response({'error': 'Sujet et message requis.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Sujet et message requis.'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         send_mail(
             subject=subject,
             message=body,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[message.email],
+            recipient_list=[message_obj.email],
         )
         return Response({'success': 'Réponse envoyée avec succès.'})
+
+
+
+from django.db.models import Count
+from django.db.models.functions import TruncMonth, TruncYear
+from django.utils.timezone import now
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Campagne, Candidat, Diplome, Demande
+from django.db.models import Count
+
+
+@api_view(['GET'])
+def statistiques_globales(request):
+    """
+    Vue qui retourne les statistiques globales et temporelles pour le tableau de bord admin.
+    """
+
+    # --- Statistiques globales ---
+    total_campagnes = Campagne.objects.count()
+    total_candidats = Candidat.objects.count()
+    total_diplomes = Diplome.objects.count()
+    total_demandes = Demande.objects.count()
+    total_domaines = Domaine.objects.count()
+
+    # --- Statistiques temporelles (par année et par mois) ---
+    current_year = now().year
+
+    campagnes_par_annee = (
+        Campagne.objects
+        .annotate(annee=TruncYear('dat_debut'))
+        .values('annee')
+        .annotate(total=Count('cod_anne'))
+        .order_by('annee')
+    )
+
+    candidats_par_mois = (
+        Candidat.objects
+        .annotate(mois=TruncMonth('dat_nais'))  # ou date d'inscription si tu l'ajoutes plus tard
+        .values('mois')
+        .annotate(total=Count('id_candidat'))
+        .order_by('mois')
+    )
+
+
+    demandes_par_mois = (
+        Demande.objects
+        .annotate(mois=TruncMonth('dat_dde'))
+        .values('mois')
+        .annotate(total=Count('id_dde'))
+        .order_by('mois')
+    )
+  
+    # --- Regroupement final ---
+    data = {
+        "global": {
+            "campagnes": total_campagnes,
+            "candidats": total_candidats,
+            "diplomes": total_diplomes,
+            "demandes": total_demandes,
+            "domaines": total_domaines,
+        },
+        "par_annee": list(campagnes_par_annee),
+        "candidats_par_mois": list(candidats_par_mois),
+        "demandes_par_mois": list(demandes_par_mois),
+    }
+
+    return Response(data)
+
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Candidat
+
+@api_view(['GET'])
+def liste_candidats(request):
+    candidats = Candidat.objects.all()
+    data = [
+        {
+            "id": c.id_candidat,
+            "nom_complet": f"{c.nom_cand} {c.pren_cand}",
+            "email": c.email,
+        }
+        for c in candidats
+    ]
+    return Response(data)
+
+
+
+
+# views.py
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Campagne
+from .serializers import CampagneSerializer
+
+@api_view(['GET'])
+def search_campagne_api(request):
+    query = request.GET.get('q', '')
+    campagnes = Campagne.objects.all()
+
+    if query:
+        campagnes = campagnes.filter(
+            cod_anne__icontains=query
+        ) | campagnes.filter(
+            description__icontains=query
+        ) | campagnes.filter(
+            etat__icontains=query
+        )
+
+    serializer = CampagneSerializer(campagnes, many=True)
+    return Response(serializer.data)
+
+
+
+
+from django.http import JsonResponse
+
+def save_consent(request):
+    consent = request.POST.get('consent')  # 'accept', 'reject', 'custom'
+    response = JsonResponse({"status": "ok"})
+    response.set_cookie("cookie_consent", consent, max_age=3600*24*365)
+    return response
+
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+@csrf_exempt  # à remplacer par une auth sécurisée plus tard
+def set_cookie_consent(request):
+    """
+    Enregistre le consentement utilisateur via API Next.js
+    """
+    if request.method == "POST":
+        consent = request.POST.get("consent") or request.GET.get("consent")
+        response = JsonResponse({"status": "ok", "consent": consent})
+        response.set_cookie(
+            key="cookie_consent",
+            value=consent,
+            max_age=60 * 60 * 24 * 365,  # 1 an
+            httponly=True,
+            samesite='Lax',
+            secure=True
+        )
+        return response
+    return JsonResponse({"error": "Méthode non autorisée"}, status=405)
+
