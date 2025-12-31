@@ -102,7 +102,7 @@ class Compte(models.Model):
 class Demande(models.Model):
     ETAT_CHOICES = [
         ("ENVOYEE", "Envoyée"),
-        ("EN_COURS", "En cours"),
+        ("EN COURS", "En cours"),
         ("ACCEPTEE", "Acceptée"),
         ("REFUSEE", "Refusée"),
     ]

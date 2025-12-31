@@ -21,33 +21,59 @@ class CampagneSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class DemandeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Demande
+        fields = "__all__"
+
+
 class CandidatSerializer(serializers.ModelSerializer):
+    # Inclut les demandes associées pour exposer tout le dossier du candidat.
+    demandes = DemandeSerializer(many=True, read_only=True)
+    # Expose l'objet diplôme complet (lecture) et son id pour l'écriture.
+    diplome = DiplomeSerializer(read_only=True)
+    diplome_id = serializers.PrimaryKeyRelatedField(
+        queryset=Diplome.objects.all(),
+        source="diplome",
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = Candidat
-        fields = '__all__'
-
-from rest_framework import serializers
-from .models import Compte
+        fields = [
+            "id_candidat",
+            "nom_cand",
+            "pren_cand",
+            "genre",
+            "dat_nais",
+            "lieu_nais",
+            "telephone1",
+            "telephone2",
+            "email",
+            "photo",
+            "sitmat",
+            "diplome",
+            "diplome_id",
+            "password",
+            "demandes",
+        ]
+        extra_kwargs = {
+            "password": {"write_only": True},
+        }
 
 class CompteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Compte
-        fields = ['id', 'email', 'password', 'candidat']
-        extra_kwargs = {'password': {'write_only': True}}
+        fields = ["id", "email", "password", "candidat"]
+        extra_kwargs = {"password": {"write_only": True}}
 
     def create(self, validated_data):
         compte = Compte(**validated_data)
-        compte.set_password(validated_data['password'])
+        compte.set_password(validated_data["password"])
         compte.save()
         return compte
-
-
-
-
-class DemandeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Demande
-        fields = '__all__'
 
 
 
