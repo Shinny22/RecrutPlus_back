@@ -31,7 +31,7 @@ CSRF_TRUSTED_ORIGINS = [
     "recrutplus-back.onrender.com"
 ]
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "https://recrutplus-back.onrender.com/"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "recrutplus-back.onrender.com"]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
