@@ -35,7 +35,7 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
-    "recrutplus-back.onrender.com"
+    "https://recrutplus-back.onrender.com/"
 ]
 
 import os
