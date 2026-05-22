@@ -26,16 +26,18 @@ SECRET_KEY = 'django-insecure-3=n)xoi4*w-^wsu&t3ea-$!!f9q$ws154=((&_0+344hmzll^0
 DEBUG = True
 
 CSRF_TRUSTED_ORIGINS = [
+    "https://recrutplusprod.vercel.app",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
-    "recrutplus-back.onrender.com"
+    "https://recrutplus-back.onrender.com"
 ]
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "recrutplus-back.onrender.com"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "recrutplus-back.onrender.com", "recrutplusprod.vercel.app"]
 CORS_ALLOWED_ORIGINS = [
+    "https://recrutplusprod.vercel.app",
     "http://localhost:3000",
     "http://localhost:3001",
-    "https://recrutplus-back.onrender.com/"
+    "https://recrutplus-back.onrender.com"
 ]
 
 
