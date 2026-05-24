@@ -1,24 +1,34 @@
-# recruteur/serializers.py
+from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
-from .models import *
-from django.contrib.auth.models import User
+
+from .models import (
+    Campagne,
+    Candidat,
+    Compte,
+    ContactMessage,
+    Demande,
+    Diplome,
+    Domaine,
+    Newsletter,
+)
+
 
 class DomaineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Domaine
-        fields = '__all__'
+        fields = "__all__"
 
 
 class DiplomeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Diplome
-        fields = '__all__'
+        fields = "__all__"
 
 
 class CampagneSerializer(serializers.ModelSerializer):
     class Meta:
         model = Campagne
-        fields = '__all__'
+        fields = "__all__"
 
 
 class DemandeSerializer(serializers.ModelSerializer):
@@ -28,9 +38,7 @@ class DemandeSerializer(serializers.ModelSerializer):
 
 
 class CandidatSerializer(serializers.ModelSerializer):
-    # Inclut les demandes associées pour exposer tout le dossier du candidat.
     demandes = DemandeSerializer(many=True, read_only=True)
-    # Expose l'objet diplôme complet (lecture) et son id pour l'écriture.
     diplome = DiplomeSerializer(read_only=True)
     diplome_id = serializers.PrimaryKeyRelatedField(
         queryset=Diplome.objects.all(),
@@ -63,6 +71,24 @@ class CandidatSerializer(serializers.ModelSerializer):
             "password": {"write_only": True},
         }
 
+    def create(self, validated_data):
+        password = validated_data.pop("password", None)
+        candidat = Candidat(**validated_data)
+        if password:
+            candidat.set_password(password)
+        candidat.save()
+        return candidat
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
+
 class CompteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Compte
@@ -70,55 +96,20 @@ class CompteSerializer(serializers.ModelSerializer):
         extra_kwargs = {"password": {"write_only": True}}
 
     def create(self, validated_data):
+        password = validated_data.pop("password")
         compte = Compte(**validated_data)
-        compte.set_password(validated_data["password"])
+        compte.set_password(password)
         compte.save()
         return compte
-
-
-
-
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
-    nom_cand = serializers.CharField()
-    pren_cand = serializers.CharField()
-    genre = serializers.CharField()
-    dat_nais = serializers.DateField()
-    lieu_nais = serializers.CharField()
-    telephone1 = serializers.CharField()
-    email = serializers.EmailField()
-
-    class Meta:
-        model = User
-        fields = ["email", "password", "nom_cand", "pren_cand", "genre", "dat_nais", "lieu_nais", "telephone1"]
-
-    def create(self, validated_data):
-        password = validated_data.pop("password")
-        user = User.objects.create(email=validated_data["email"])
-        user.set_password(password)
-        user.save()
-
-        # créer aussi le candidat lié
-        Candidat.objects.create(
-            user=user,
-            nom_cand=validated_data["nom_cand"],
-            pren_cand=validated_data["pren_cand"],
-            genre=validated_data["genre"],
-            dat_nais=validated_data["dat_nais"],
-            lieu_nais=validated_data["lieu_nais"],
-            telephone1=validated_data["telephone1"],
-        )
-
-        return user
 
 
 class NewsletterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Newsletter
-        fields = '__all__'
+        fields = "__all__"
 
 
 class ContactMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContactMessage
-        fields = '__all__'
+        fields = "__all__"

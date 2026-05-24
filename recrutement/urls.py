@@ -1,10 +1,8 @@
-# recruteur/urls.py
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from .views import *
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from .views import set_cookie_consent
+from rest_framework_simplejwt.views import TokenRefreshView
 
+from .views import *
 router = DefaultRouter()
 router.register(r'domaines', DomaineViewSet)
 router.register(r'diplomes', DiplomeViewSet)
@@ -25,6 +23,11 @@ urlpatterns = [
     path("postuler/", PostulerView.as_view(), name="postuler"),
     path("mes-demandes/<str:email>/", MesDemandesView.as_view(), name="mes-demandes"),
     path("admin/demandes/", DemandeListAdminView.as_view(), name="admin-demandes"),
+    path(
+        "admin/export/<str:model_name>/",
+        ExportExcelAdminView.as_view(),
+        name="admin-export-excel",
+    ),
     path("api/candidat/profile/", CandidatProfileView.as_view(), name="candidat-profile"),
     path('candidat/candidatures/', MesCandidaturesView.as_view(), name='mes_demandes'),
     path('candidat/newsletter/', NewsletterView.as_view(), name='newsletter'),
@@ -32,7 +35,6 @@ urlpatterns = [
     path('candidats/', liste_candidats, name='liste_candidats'),
     path('campagnes/search/', search_campagne_api, name='campagne-search'),
     path("set-cookie-consent/", set_cookie_consent, name="set_cookie_consent"),
-    # path('export/<str:model_name>/', export_any_model, name='export-any-model'),
     path("login/admin/", AdminLoginView.as_view(), name="admin-login"),
     
 ]

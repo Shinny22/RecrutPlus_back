@@ -1,24 +1,32 @@
-﻿from datetime import datetime, timedelta
-
-import jwt
-from django.conf import settings
+﻿from django.conf import settings
 from django.contrib.auth import authenticate
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.db.models import Count, Q
 from django.db.models.functions import TruncMonth, TruncYear
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
-from django.utils.timezone import now
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import generics, permissions, status, viewsets
-from rest_framework.decorators import action, api_view
-from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
+from rest_framework import generics, status, viewsets
+from rest_framework.decorators import (
+    action,
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from .auth_utils import (
+    encode_candidat_token,
+    get_admin_user_from_request,
+    get_candidat_id_from_request,
+)
+from .permissions import AdminOnly, IsAdminUser, ReadOnlyOrAdmin
 
 from .models import (
     Campagne,
@@ -40,62 +48,60 @@ from .serializers import (
     DomaineSerializer,
     NewsletterSerializer,
 )
+from .utils.export_excel import export_model_to_excel
 
 
-# -----------------------
-# Permissions helpers
-# -----------------------
-class IsAdminUser(BasePermission):
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_staff)
-
-
-class IsCandidat(BasePermission):
-    """Autorise uniquement les candidats à accéder à la vue"""
-
-    def has_permission(self, request, view):
-        return hasattr(request.user, "candidat_profile")
-
-    def has_object_permission(self, request, view, obj):
-        return obj.candidat.id_candidat == request.user.candidat_profile.id_candidat
+class AdminJWTViewSet(viewsets.ModelViewSet):
+    authentication_classes = [JWTAuthentication]
 
 
 # -----------------------
 # Model viewsets
 # -----------------------
-class DomaineViewSet(viewsets.ModelViewSet):
+class DomaineViewSet(AdminJWTViewSet):
     queryset = Domaine.objects.all()
     serializer_class = DomaineSerializer
+    permission_classes = [ReadOnlyOrAdmin]
 
 
-class DiplomeViewSet(viewsets.ModelViewSet):
+class DiplomeViewSet(AdminJWTViewSet):
     queryset = Diplome.objects.all()
     serializer_class = DiplomeSerializer
+    permission_classes = [ReadOnlyOrAdmin]
 
 
-class CampagneViewSet(viewsets.ModelViewSet):
+class CampagneViewSet(AdminJWTViewSet):
     queryset = Campagne.objects.all()
     serializer_class = CampagneSerializer
+    permission_classes = [ReadOnlyOrAdmin]
 
 
-class CandidatViewSet(viewsets.ModelViewSet):
+class CandidatViewSet(AdminJWTViewSet):
     queryset = Candidat.objects.all()
     serializer_class = CandidatSerializer
+    permission_classes = [AdminOnly]
 
 
-class DemandeViewSet(viewsets.ModelViewSet):
+class DemandeViewSet(AdminJWTViewSet):
     queryset = Demande.objects.all()
     serializer_class = DemandeSerializer
+    permission_classes = [AdminOnly]
 
 
-class NewsletterViewSet(viewsets.ModelViewSet):
+class NewsletterViewSet(AdminJWTViewSet):
     queryset = Newsletter.objects.all()
     serializer_class = NewsletterSerializer
+    permission_classes = [AdminOnly]
 
 
-class ContactMessageViewSet(viewsets.ModelViewSet):
+class ContactMessageViewSet(AdminJWTViewSet):
     queryset = ContactMessage.objects.all().order_by("-date_envoi")
     serializer_class = ContactMessageSerializer
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [AllowAny()]
+        return [AdminOnly()]
 
     def create(self, request, *args, **kwargs):
         data = request.data
@@ -131,7 +137,7 @@ class ContactMessageViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(contact_message)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], permission_classes=[AdminOnly])
     def reply(self, request, pk=None):
         message_obj = self.get_object()
         subject = request.data.get("subject")
@@ -204,12 +210,46 @@ class AdminLoginView(APIView):
 
 
 class DemandeListAdminView(APIView):
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAdminUser]
 
     def get(self, request):
         demandes = Demande.objects.select_related("candidat", "campagne").all()
         serializer = DemandeSerializer(demandes, many=True)
         return Response(serializer.data)
+
+
+class ExportExcelAdminView(APIView):
+    """
+    Export Excel réservé aux administrateurs (JWT admin + is_staff).
+    GET /admin/export/<model_name>/?etat=...&campagne=...
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, model_name):
+        model_key = model_name.lower().strip()
+        queryset = None
+
+        if model_key == "demandes":
+            queryset = Demande.objects.select_related("candidat", "campagne").all()
+            etat = request.query_params.get("etat")
+            campagne = request.query_params.get("campagne")
+            if etat:
+                queryset = queryset.filter(etat_dde__iexact=etat.strip())
+            if campagne:
+                queryset = queryset.filter(campagne__cod_anne__iexact=campagne.strip())
+
+        response, error = export_model_to_excel(model_key, queryset=queryset)
+        if error:
+            status_code = (
+                status.HTTP_404_NOT_FOUND
+                if "Aucune donnée" in error
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response({"error": error}, status=status_code)
+        return response
 
 
 # -----------------------
@@ -256,6 +296,9 @@ class CandidatCreateView(generics.CreateAPIView):
 
 
 class CandidatRegisterView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
     def post(self, request):
         data = request.data
         required_fields = [
@@ -332,6 +375,10 @@ class CompteRegisterView(APIView):
 
 
 class CandidatLoginView(APIView):
+    """Login candidat : JWT PyJWT custom (pas SimpleJWT)."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
     def post(self, request):
         data = request.data
         email = data.get("email")
@@ -357,11 +404,7 @@ class CandidatLoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        payload = {
-            "id": candidat.id_candidat,
-            "exp": datetime.utcnow() + timedelta(hours=24),
-        }
-        token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+        token = encode_candidat_token(candidat.id_candidat)
 
         serializer = CandidatSerializer(candidat)
         # Renvoyer le token sous plusieurs clés pour éviter les "undefined"
@@ -380,30 +423,23 @@ class CandidatLoginView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    """Blacklist du refresh admin (SimpleJWT). Candidats : déconnexion côté client."""
+
+    permission_classes = [AllowAny]
 
     def post(self, request):
         refresh_token = request.data.get("refresh")
-
         if not refresh_token:
-            return Response(
-                {"error": "Refresh token requis"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"message": "Déconnexion réussie"}, status=status.HTTP_200_OK)
 
         try:
             token = RefreshToken(refresh_token)
-            token.blacklist()  # ⛔ invalide définitivement le token
-
-            return Response(
-                {"message": "Déconnexion réussie"},
-                status=status.HTTP_200_OK
-            )
-
+            token.blacklist()
+            return Response({"message": "Déconnexion réussie"}, status=status.HTTP_200_OK)
         except Exception:
             return Response(
                 {"error": "Token invalide ou déjà expiré"},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
 class CandidatDemandesView(generics.ListAPIView):
@@ -417,19 +453,40 @@ class CandidatDemandesView(generics.ListAPIView):
 
 
 class MesDemandesView(APIView):
-    authentication_classes = [JWTAuthentication]
-    #permission_classes = [IsAuthenticated]
+    """
+    Demandes par email : JWT candidat (email doit correspondre) ou admin staff.
+    """
 
-    def get(self, request):
-        payload = request.auth.payload
-        candidat_id = payload.get("candidat_id")
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
-        if not candidat_id:
-            return Response({"error": "Profil introuvable"}, status=404)
+    def get(self, request, email):
+        email = email.strip().lower()
+        candidat_id = get_candidat_id_from_request(request)
+        admin_user = get_admin_user_from_request(request)
 
-        demandes = Demande.objects.select_related("campagne").filter(
-            candidat_id=candidat_id
-        )
+        if candidat_id:
+            try:
+                candidat = Candidat.objects.get(id_candidat=candidat_id)
+            except Candidat.DoesNotExist:
+                return Response({"error": "Candidat introuvable"}, status=status.HTTP_404_NOT_FOUND)
+            if candidat.email.lower() != email:
+                return Response(
+                    {"error": "Accès non autorisé à ce profil"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        elif admin_user:
+            try:
+                candidat = Candidat.objects.get(email__iexact=email)
+            except Candidat.DoesNotExist:
+                return Response({"error": "Candidat introuvable"}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response(
+                {"error": "Authentification requise"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        demandes = Demande.objects.select_related("campagne").filter(candidat=candidat)
         serializer = DemandeSerializer(demandes, many=True)
         return Response(serializer.data)
 
@@ -439,22 +496,16 @@ class CandidatProfileView(APIView):
     Renvoie le profil complet du candidat connecté via le token JWT (login candidats).
     """
 
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
     def get(self, request):
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return Response({"error": "Token manquant ou invalide"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        token = auth_header.split(" ", 1)[1]
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-            candidat_id = payload.get("id")
-        except jwt.ExpiredSignatureError:
-            return Response({"error": "Token expiré"}, status=status.HTTP_401_UNAUTHORIZED)
-        except jwt.InvalidTokenError:
-            return Response({"error": "Token invalide"}, status=status.HTTP_401_UNAUTHORIZED)
-
+        candidat_id = get_candidat_id_from_request(request)
         if not candidat_id:
-            return Response({"error": "Profil candidat introuvable"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Token manquant ou invalide"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         try:
             candidat = Candidat.objects.get(id_candidat=candidat_id)
@@ -474,22 +525,16 @@ class MesCandidaturesView(APIView):
     les informations essentielles de la campagne et le statut courant.
     """
 
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
     def get(self, request):
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return Response({"error": "Token manquant ou invalide"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        token = auth_header.split(" ", 1)[1]
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-            candidat_id = payload.get("id")
-        except jwt.ExpiredSignatureError:
-            return Response({"error": "Token expiré"}, status=status.HTTP_401_UNAUTHORIZED)
-        except jwt.InvalidTokenError:
-            return Response({"error": "Token invalide"}, status=status.HTTP_401_UNAUTHORIZED)
-
+        candidat_id = get_candidat_id_from_request(request)
         if not candidat_id:
-            return Response({"error": "Profil candidat introuvable"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Token manquant ou invalide"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         try:
             candidat = Candidat.objects.get(id_candidat=candidat_id)
@@ -512,10 +557,8 @@ class MesCandidaturesView(APIView):
                     "code": d.campagne.cod_anne,
                     "description": d.campagne.description,
                     "etat": d.campagne.etat,
-                    "dat_fin": d.campagne.dat_fin,
-                    "description": d.campagne.description,
-                    "reponse": d.reponse,
                     "dat_debut": d.campagne.dat_debut,
+                    "dat_fin": d.campagne.dat_fin,
                 },
             }
             for d in demandes
@@ -527,18 +570,24 @@ class MesCandidaturesView(APIView):
 # -----------------------
 # Postulation
 # -----------------------
-class PostulerCampagneView(generics.CreateAPIView):
-    queryset = Demande.objects.all()
-    serializer_class = DemandeSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def perform_create(self, serializer):
-        serializer.save(candidat=self.request.user.candidat_profile)
-
-
 class PostulerView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         data = request.data
+        required = ["email", "campagne", "anne_obt_dip"]
+        for field in required:
+            if not data.get(field):
+                return Response(
+                    {"error": f"{field} est requis"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if not request.FILES.get("cv"):
+            return Response(
+                {"error": "Le CV est requis"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         candidat, created = Candidat.objects.get_or_create(
             email=data.get("email"),
@@ -569,13 +618,19 @@ class PostulerView(APIView):
 
         try:
             campagne = Campagne.objects.get(cod_anne=data.get("campagne"))
-        except ObjectDoesNotExist:
+        except Campagne.DoesNotExist:
             return Response({"error": "Campagne non trouvée"}, status=status.HTTP_404_NOT_FOUND)
+
+        if Demande.objects.filter(candidat=candidat, campagne=campagne).exists():
+            return Response(
+                {"error": "Une demande existe déjà pour cette campagne"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         Demande.objects.create(
             candidat=candidat,
             campagne=campagne,
-            cv=request.FILES.get("cv"),
+            cv=request.FILES["cv"],
             diplome_fichier=request.FILES.get("diplome"),
             anne_obt_dip=data.get("anne_obt_dip"),
         )
@@ -620,7 +675,7 @@ class NewsletterView(APIView):
             send_mail(
                 email_subject,
                 email_message,
-                "shinnyoyere@gmail.com",
+                settings.DEFAULT_FROM_EMAIL,
                 [email],
                 fail_silently=False,
             )
@@ -644,6 +699,8 @@ class NewsletterView(APIView):
 # Statistiques & listes
 # -----------------------
 @api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminUser])
 def statistiques_globales(request):
     total_campagnes = Campagne.objects.count()
     total_candidats = Candidat.objects.count()
@@ -689,6 +746,8 @@ def statistiques_globales(request):
 
 
 @api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminUser])
 def liste_candidats(request):
     candidats = Candidat.objects.all()
     data = [
@@ -705,27 +764,35 @@ def liste_candidats(request):
 # -----------------------
 # Cookies consentement
 # -----------------------
-def save_consent(request):
-    consent = request.POST.get("consent")  # 'accept', 'reject', 'custom'
-    response = JsonResponse({"status": "ok"})
-    response.set_cookie("cookie_consent", consent, max_age=3600 * 24 * 365)
-    return response
-
-
-@csrf_exempt  # à remplacer par une auth sécurisée plus tard
+@csrf_exempt
 def set_cookie_consent(request):
-    """Enregistre le consentement utilisateur via API Next.js"""
+    """Enregistre le consentement utilisateur (cookie + optionnellement en base)."""
 
-    if request.method == "POST":
-        consent = request.POST.get("consent") or request.GET.get("consent")
-        response = JsonResponse({"status": "ok", "consent": consent})
-        response.set_cookie(
-            key="cookie_consent",
-            value=consent,
-            max_age=60 * 60 * 24 * 365,
-            httponly=True,
-            samesite="Lax",
-            secure=True,
+    if request.method != "POST":
+        return JsonResponse({"error": "Méthode non autorisée"}, status=405)
+
+    consent = request.POST.get("consent") or request.GET.get("consent")
+    if consent not in ("accept", "reject", "custom"):
+        return JsonResponse({"error": "Valeur de consentement invalide"}, status=400)
+
+    if request.user.is_authenticated:
+        from .models import CookieConsent
+
+        CookieConsent.objects.update_or_create(
+            user=request.user,
+            defaults={
+                "consent_analytics": consent in ("accept", "custom"),
+                "consent_marketing": consent == "accept",
+            },
         )
-        return response
-    return JsonResponse({"error": "Méthode non autorisée"}, status=405)
+
+    response = JsonResponse({"status": "ok", "consent": consent})
+    response.set_cookie(
+        key="cookie_consent",
+        value=consent,
+        max_age=60 * 60 * 24 * 365,
+        httponly=True,
+        samesite="Lax",
+        secure=not settings.DEBUG,
+    )
+    return response

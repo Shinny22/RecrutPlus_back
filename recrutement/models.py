@@ -1,10 +1,7 @@
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
-from django.contrib.auth.models import AbstractUser
 
 
-# -----------------------------
-# Domaine
-# -----------------------------
 class Domaine(models.Model):
     id_dom = models.AutoField(primary_key=True)
     lib_dom = models.CharField(max_length=255)
@@ -12,9 +9,7 @@ class Domaine(models.Model):
     def __str__(self):
         return self.lib_dom
 
-# -----------------------------
-# Diplôme
-# -----------------------------
+
 class Diplome(models.Model):
     id_diplome = models.AutoField(primary_key=True)
     designation = models.CharField(max_length=255)
@@ -23,9 +18,7 @@ class Diplome(models.Model):
     def __str__(self):
         return self.designation
 
-# -----------------------------
-# Campagne
-# -----------------------------
+
 class Campagne(models.Model):
     cod_anne = models.CharField(max_length=20, primary_key=True)
     description = models.TextField()
@@ -37,10 +30,6 @@ class Campagne(models.Model):
         return f"{self.cod_anne} - {self.description}"
 
 
-
-# -----------------------------
-# Candidat
-# -----------------------------
 class Candidat(models.Model):
     GENRE_CHOICES = [
         ("M", "Masculin"),
@@ -56,13 +45,14 @@ class Candidat(models.Model):
     telephone2 = models.CharField(max_length=20, blank=True, null=True)
     email = models.EmailField(unique=True)
     photo = models.ImageField(upload_to="photos/", blank=True, null=True)
-    sitmat = models.CharField(max_length=50, blank=True, null=True)  # Situation matrimoniale
-    diplome = models.ForeignKey(Diplome, on_delete=models.SET_NULL, null=True, related_name="candidats")
-    password = models.CharField(max_length=128,default="")
+    sitmat = models.CharField(max_length=50, blank=True, null=True)
+    diplome = models.ForeignKey(
+        Diplome, on_delete=models.SET_NULL, null=True, related_name="candidats"
+    )
+    password = models.CharField(max_length=128, default="")
 
     def set_password(self, raw_password):
         self.password = make_password(raw_password)
-        self.save()
 
     def check_password(self, raw_password):
         return check_password(raw_password, self.password)
@@ -71,18 +61,15 @@ class Candidat(models.Model):
         return f"{self.nom_cand} {self.pren_cand}"
 
 
-
-from django.contrib.auth.hashers import make_password, check_password
-
 class Compte(models.Model):
     email = models.EmailField(unique=True)
     password = models.CharField(max_length=128)
     candidat = models.OneToOneField(
-        'Candidat',
+        "Candidat",
         on_delete=models.CASCADE,
         blank=True,
         null=True,
-        related_name='compte'
+        related_name="compte",
     )
 
     def set_password(self, raw_password):
@@ -95,10 +82,6 @@ class Compte(models.Model):
         return self.email
 
 
-
-# -----------------------------
-# Demande
-# -----------------------------
 class Demande(models.Model):
     ETAT_CHOICES = [
         ("ENVOYEE", "Envoyée"),
@@ -111,11 +94,10 @@ class Demande(models.Model):
     dat_dde = models.DateField(auto_now_add=True)
     cv = models.FileField(upload_to="cvs/")
     diplome_fichier = models.FileField(
-    upload_to="diplomes/",
-    blank=True,
-    null=True,
-    default="diplomes/default_diplome.pdf"
-)  # ✅ fichier uploadé
+        upload_to="diplomes/",
+        blank=True,
+        null=True,
+    )
     anne_obt_dip = models.PositiveSmallIntegerField()
     etat_dde = models.CharField(max_length=20, choices=ETAT_CHOICES, default="ENVOYEE")
     reponse = models.TextField(blank=True, null=True)
@@ -126,7 +108,6 @@ class Demande(models.Model):
         return f"Demande {self.id_dde} - {self.candidat.nom_cand}"
 
 
-# models.py
 class Newsletter(models.Model):
     email = models.EmailField(unique=True)
     date_inscription = models.DateTimeField(auto_now_add=True)
@@ -137,7 +118,7 @@ class Newsletter(models.Model):
 
 class ContactMessage(models.Model):
     nom = models.CharField(max_length=100)
-    prenom = models.CharField(max_length=100,blank=True,null=True)
+    prenom = models.CharField(max_length=100, blank=True, null=True)
     email = models.EmailField()
     message = models.TextField()
     date_envoi = models.DateTimeField(auto_now_add=True)
@@ -146,10 +127,8 @@ class ContactMessage(models.Model):
         return f"{self.nom} - {self.email}"
 
 
-from django.db import models
-
 class CookieConsent(models.Model):
-    user = models.ForeignKey('auth.User', on_delete=models.CASCADE, null=True)
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, null=True, blank=True)
     consent_analytics = models.BooleanField(default=False)
     consent_marketing = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)

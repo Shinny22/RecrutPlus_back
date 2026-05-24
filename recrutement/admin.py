@@ -28,7 +28,7 @@ class DemandeAdmin(admin.ModelAdmin):
 
 @admin.register(Compte)
 class CompteAdmin(admin.ModelAdmin):
-    list_display = ('id', 'email', 'password', 'candidat')
+    list_display = ('id', 'email', 'candidat')
 
 @admin.register(Newsletter)
 class NewsletterAdmin(admin.ModelAdmin):
