@@ -20,6 +20,7 @@ DEBUG = os.getenv("DEBUG", "True").lower() in ("1", "true", "yes")
 
 CSRF_TRUSTED_ORIGINS = [
     "https://recrutplusprod.vercel.app",
+    "https://recrut-plus-dash-prod.vercel.app",
     "http://localhost:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3000",
@@ -38,6 +39,7 @@ ALLOWED_HOSTS = [
 
 CORS_ALLOWED_ORIGINS = [
     "https://recrutplusprod.vercel.app",
+    "https://recrut-plus-dash-prod.vercel.app",
     "http://localhost:3000",
     "http://localhost:3001",
     "https://recrutplus-back.onrender.com",
